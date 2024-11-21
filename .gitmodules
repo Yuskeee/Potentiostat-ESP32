@@ -1,0 +1,3 @@
+[submodule "lib/MCP4725"]
+	path = lib/MCP4725
+	url = git@github.com:enjoyneering/MCP4725.git
