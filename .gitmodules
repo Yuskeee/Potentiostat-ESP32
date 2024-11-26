@@ -1,3 +1,12 @@
 [submodule "lib/MCP4725"]
 	path = lib/MCP4725
 	url = git@github.com:enjoyneering/MCP4725.git
+[submodule "lib/Adafruit_SSD1306"]
+	path = lib/Adafruit_SSD1306
+	url = git@github.com:adafruit/Adafruit_SSD1306.git
+[submodule "lib/Adafruit-GFX-Library"]
+	path = lib/Adafruit-GFX-Library
+	url = git@github.com:adafruit/Adafruit-GFX-Library.git
+[submodule "lib/Adafruit_BusIO"]
+	path = lib/Adafruit_BusIO
+	url = git@github.com:adafruit/Adafruit_BusIO.git
