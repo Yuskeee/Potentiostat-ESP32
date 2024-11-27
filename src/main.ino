@@ -1,4 +1,4 @@
-/* Connection to the MCP4725 DAC code for ESP32 using arduino framerwork */
+/* Educational low-cost Potentiostat using the microcontroller ESP32 using arduino framerwork */
 
 #include <Arduino.h>
 #include <MCP4725.h>
@@ -8,32 +8,92 @@
 
 esp_adc_cal_characteristics_t chars;
 
-#define SDA_1 21
-#define SCL_1 22
+// #define SDA_1 21
+// #define SCL_1 22
 
 #define SDA_2 18
 #define SCL_2 19
 
 // Multiple I2C channels
-TwoWire I2Cone = TwoWire(0);
+// TwoWire I2Cone = TwoWire(0);
 TwoWire I2Ctwo = TwoWire(1);
 
-#define DAC_REF_VOLTAGE 3.300 //DAC reference voltage
+#define DAC_REF_VOLTAGE 3.3 //DAC reference voltage
 #define I2C_BUS_SPEED   100000 //i2c bus speed, 100 000Hz or 400 000Hz
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define BATTERY_MAX 12.6 // Maximum battery voltage
+#define BATTERY_MIN 10.5 // Minimum battery voltage
 
 const int adc_pin = 34;
+const int battery_adc_pin = 35;
 
-MCP4725 dac(0x60, &I2Cone);
+int batteryPercentage = 100;
+
+enum state {
+  WAIT_CONNECTION,
+  CYCLIC_VOLTAMMETRY,
+  SEND_DATA
+};
+
+state currentState = WAIT_CONNECTION;
+
+MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
 
+void calculateBatteryPercentage() {
+  // Calculate battery percentage with an ADC reading
+  auto batteryVoltage = adc1_get_raw(ADC1_CHANNEL_7); // 35
+  batteryPercentage = map(esp_adc_cal_raw_to_voltage(batteryVoltage, &chars), BATTERY_MIN * 1000, BATTERY_MAX * 1000, 0, 100);
+  if (batteryPercentage < 0) {
+    batteryPercentage = 0;
+  }
+  if (batteryPercentage > 100) {
+    batteryPercentage = 100;
+  }
+  return;
+}
+
+// Prints header of screen and also fits the message parameter below
+void printScreen(const char* message) {
+  calculateBatteryPercentage();
+  display.clearDisplay();
+  // Header
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  // Current state
+  switch(currentState) {
+    case WAIT_CONNECTION:
+      display.print("Connection...");
+      break;
+    case CYCLIC_VOLTAMMETRY:
+      display.print("Cyclic Voltammetry");
+      break;
+    case SEND_DATA:
+      display.print("Sending data...");
+      break;
+    default:
+      display.print("Unknown state");
+      break;
+  }
+  // Battery status in header
+  display.setCursor(0,10);
+  display.print("Battery:" + String(batteryPercentage) + "%");
+  // Message
+  display.setCursor(0,20);
+  display.print(message);
+  display.display();
+}
+
 // Read the signal from the ADC
-void readSignal() {
+String readSignal() {
   // Read the signal from the ADC
   auto v34 = adc1_get_raw(ADC1_CHANNEL_6); // 34
   Serial.print("Measured Signal (mV): ");
   Serial.println(esp_adc_cal_raw_to_voltage(v34, &chars));
+  String signalMessage = "Measured Signal (mV): " + String(esp_adc_cal_raw_to_voltage(v34, &chars));
+  return signalMessage;
 }
 
 // Voltage sweep fucntion for the MCP4725 DAC given start and end voltage
@@ -44,15 +104,21 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
     dac->setVoltage(currentVoltage);
     Serial.print("Voltage: ");
     Serial.println(currentVoltage);
+    String voltageMessage = "Voltage: " + String(currentVoltage);
     currentVoltage += voltageStep;
     delay(delayTime);
-    readSignal();
+    String readingMessage = readSignal();
+    String output = voltageMessage + "\n" + readingMessage;
+
+    printScreen(output.c_str());
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  I2Cone.begin(SDA_1, SCL_1, I2C_BUS_SPEED); 
+  Wire.begin();
+  Wire.setClock(I2C_BUS_SPEED);
+  // I2Cone.begin(SDA_1, SCL_1, I2C_BUS_SPEED); 
   I2Ctwo.begin(SDA_2, SCL_2, I2C_BUS_SPEED);
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -60,13 +126,19 @@ void setup() {
     for(;;);
   }
 
+  while (dac.begin() != true)
+  {
+    Serial.println(F("MCP4725 is not connected")); //(F()) saves string to flash & keeps dynamic memory free
+    delay(5000);
+  }
+
   dac.begin();
-  dac.setMaxVoltage(DAC_REF_VOLTAGE);
 
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &chars);
 
   adc1_config_width(chars.bit_width);
   adc1_config_channel_atten(ADC1_CHANNEL_6, chars.atten); // 34
+  adc1_config_channel_atten(ADC1_CHANNEL_7, chars.atten); // 35
   
   delay(1000);
 
@@ -75,19 +147,50 @@ void setup() {
 }
 
 void loop() {
-  dac.setVoltage(0.0);
-  voltageSweep(&dac, 0.0, 3, 3000, 200);
-  voltageSweep(&dac, 3, 0.0, 3000, 200);
+  // Check the current state and run the appropriate functionality
+  switch(currentState) {
+    case WAIT_CONNECTION:
+      // In this state, we could check if the device is connected or initialized
+      display.clearDisplay();
+      display.setTextColor(WHITE);
+      display.setTextSize(1);
+      display.setCursor(0,0);
+      display.print("Waiting for connection...");
+      display.display();
+      delay(1000);
+      currentState = CYCLIC_VOLTAMMETRY;  // Once setup is done, move to the next state
+      break;
 
-  display.clearDisplay();
-  // display temperature
-  display.setTextColor(WHITE);
-  display.setTextSize(3);
-  display.setCursor(0,0);
-  display.print("STATUS: ");
-  display.setTextSize(2);
-  display.setCursor(0,10);
+    case CYCLIC_VOLTAMMETRY:
+      // Perform the cyclic voltammetry (voltage sweep)
+      display.clearDisplay();
+      display.setTextColor(WHITE);
+      display.setTextSize(1);
+      display.setCursor(0,0);
+      display.print("Cyclic Voltammetry");
+      display.display();
+      voltageSweep(&dac, 0.0, 3.0, 1000, 200);  // Sweep from 0 to 3V
+      voltageSweep(&dac, 3.0, 0.0, 1000, 200);  // Sweep from 3V to 0
 
-  display.display();
-  delay(1000);
+      currentState = SEND_DATA;  // After voltammetry, go to send data state
+      break;
+
+    case SEND_DATA:
+      // Send data (e.g., save it, transmit it, or process it)
+      display.clearDisplay();
+      display.setTextColor(WHITE);
+      display.setTextSize(1);
+      display.setCursor(0,0);
+      display.print("Sending data...");
+      display.display();
+      delay(1000);  // Simulate data sending
+      
+      // After sending data, return to wait connection or repeat the process
+      currentState = WAIT_CONNECTION;  // Reset to waiting for next cycle
+      break;
+
+    default:
+      currentState = WAIT_CONNECTION;  // Default to WAIT_CONNECTION in case of error
+      break;
+  }
 }
