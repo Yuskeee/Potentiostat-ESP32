@@ -7,6 +7,3 @@
 [submodule "lib/Adafruit_BusIO"]
 	path = lib/Adafruit_BusIO
 	url = git@github.com:adafruit/Adafruit_BusIO.git
-[submodule "lib/MCP4725"]
-	path = lib/MCP4725
-	url = git@github.com:RobTillaart/MCP4725.git
