@@ -8,20 +8,25 @@
 
 esp_adc_cal_characteristics_t chars;
 
+#define SDA_1 21
+#define SCL_1 22
+
 #define SDA_2 18
 #define SCL_2 19
+
+// Multiple I2C channels
+TwoWire I2Cone = TwoWire(0);
+TwoWire I2Ctwo = TwoWire(1);
 
 #define DAC_REF_VOLTAGE 3.300 //DAC reference voltage
 #define I2C_BUS_SPEED   100000 //i2c bus speed, 100 000Hz or 400 000Hz
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
-const int adc_pin = 34; 
-int entrySignal = 0;
-const int meanNumber = 10;
+const int adc_pin = 34;
 
-MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
+MCP4725 dac(0x60, &I2Cone);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
 
 // Read the signal from the ADC
 void readSignal() {
@@ -47,10 +52,16 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin();
-  Wire1.begin(SDA_2, SCL_2);
-  Wire.setClock(I2C_BUS_SPEED);
-  Wire1.setClock(I2C_BUS_SPEED);
+  I2Cone.begin(SDA_1, SCL_1, I2C_BUS_SPEED); 
+  I2Ctwo.begin(SDA_2, SCL_2, I2C_BUS_SPEED);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+
+  dac.begin();
+  dac.setMaxVoltage(DAC_REF_VOLTAGE);
 
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &chars);
 
@@ -60,22 +71,23 @@ void setup() {
   delay(1000);
 
   display.clearDisplay();
-  display.setTextColor(WHITE);
+  Serial.println("Finished Setup.");
 }
 
 void loop() {
-  dac.begin();
   dac.setVoltage(0.0);
-  voltageSweep(&dac, 0.0, 3, 1000, 1000);
-  voltageSweep(&dac, 3, 0.0, 1000, 1000);
+  voltageSweep(&dac, 0.0, 3, 3000, 200);
+  voltageSweep(&dac, 3, 0.0, 3000, 200);
 
   display.clearDisplay();
   // display temperature
-  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setTextSize(3);
   display.setCursor(0,0);
-  display.print("Temperature: ");
+  display.print("STATUS: ");
   display.setTextSize(2);
   display.setCursor(0,10);
 
+  display.display();
   delay(1000);
 }
