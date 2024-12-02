@@ -1,4 +1,4 @@
-/* Educational low-cost Potentiostat using the microcontroller ESP32 using arduino framerwork */
+/* Educational low-cost Potentiostat using the microcontroller ESP32 using arduino framework */
 
 #include <Arduino.h>
 #include <MCP4725.h>
@@ -103,8 +103,8 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
   for (int i = 0; i < steps; i++) {
     dac->setVoltage(currentVoltage);
     Serial.print("Voltage: ");
-    Serial.println(currentVoltage);
-    String voltageMessage = "Voltage: " + String(currentVoltage);
+    Serial.println(currentVoltage, 3);
+    String voltageMessage = "Voltage: " + String(currentVoltage, 3);
     currentVoltage += voltageStep;
     delay(delayTime);
     String readingMessage = readSignal();
