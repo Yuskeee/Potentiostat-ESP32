@@ -20,6 +20,8 @@ bool deviceConnected = false;
 
 esp_adc_cal_characteristics_t chars;
 
+bool newParameters = false;
+
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 
 #define MESSAGE_CHARACTERISTIC_UUID "6d68efe5-04b6-4a85-abc4-c2670b7bf7fd"
@@ -46,7 +48,7 @@ const int adc_pin = 34;
 const int battery_adc_pin = 35;
 
 int batteryPercentage = 100;
-const char* parametersString = "";
+String parametersString = "";
 float startVoltage = 0.0;
 float endVoltage = 0.0;
 int stepsString = 0;
@@ -86,19 +88,8 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     if (pCharacteristic == parameters_characteristic)
     {
       parametersString = pCharacteristic->getValue().c_str();
-      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, and shouldRunString 
-      startVoltage = strtof(strtok((char*)parametersString, " "), NULL);
-      endVoltage = strtof(strtok((char*)parametersString, " "), NULL);
-      stepsString = strtol(strtok((char*)parametersString, " "), NULL, 10);
-      delayString = strtol(strtok((char*)parametersString, " "), NULL, 10);
-      shouldRunString = stepsString = strtol(strtok((char*)parametersString, " "), NULL, 10);
-
-      Serial.println("Parameters: ");
-      Serial.println(startVoltage);
-      Serial.println(endVoltage);
-      Serial.println(stepsString);
-      Serial.println(delayString);
-      Serial.println(shouldRunString);
+      parameters_characteristic->setValue(const_cast<char *>(parametersString.c_str()));
+      parameters_characteristic->notify();
     }
   }
 };
@@ -166,7 +157,7 @@ String readSignal() {
   return signalMessage;
 }
 
-// Voltage sweep fucntion for the MCP4725 DAC given start and end voltage
+// Voltage sweep function for the MCP4725 DAC given start and end voltage
 void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps, int delayTime) {
   float voltageStep = (endVoltage - startVoltage) / steps;
   float currentVoltage = startVoltage;
@@ -253,6 +244,7 @@ void loop() {
       // Start advertising
       pServer->getAdvertising()->start();
       delay(1000);
+      parameters_characteristic->setCallbacks(new CharacteristicsCallbacks());
       if(deviceConnected) {
         currentState = CYCLIC_VOLTAMMETRY;  // Once connected, move to the next state
       }
