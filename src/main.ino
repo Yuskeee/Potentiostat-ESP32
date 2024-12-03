@@ -5,8 +5,25 @@
 #include <esp_adc_cal.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <string.h>
+
+// BLE SECTION
+BLEServer *pServer = NULL;
+
+BLECharacteristic *message_characteristic = NULL;
+BLECharacteristic *parameters_characteristic = NULL;
+
+bool deviceConnected = false;
 
 esp_adc_cal_characteristics_t chars;
+
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+
+#define MESSAGE_CHARACTERISTIC_UUID "6d68efe5-04b6-4a85-abc4-c2670b7bf7fd"
+#define parameters_CHARACTERISTIC_UUID "f27b53ad-c63d-49a0-8c0f-9f297e6cc520"
 
 // #define SDA_1 21
 // #define SCL_1 22
@@ -29,6 +46,12 @@ const int adc_pin = 34;
 const int battery_adc_pin = 35;
 
 int batteryPercentage = 100;
+const char* parametersString = "";
+float startVoltage = 0.0;
+float endVoltage = 0.0;
+int stepsString = 0;
+int delayString = 0;
+int shouldRunString = 0;
 
 enum state {
   WAIT_CONNECTION,
@@ -37,6 +60,48 @@ enum state {
 };
 
 state currentState = WAIT_CONNECTION;
+
+class MyServerCallbacks : public BLEServerCallbacks
+{
+  void onConnect(BLEServer *pServer)
+  {
+    deviceConnected = true;
+    Serial.println("Connected");
+  };
+
+  void onDisconnect(BLEServer *pServer)
+  {
+    deviceConnected = false;
+    Serial.println("Disconnected");
+  }
+};
+
+class CharacteristicsCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    Serial.print("Value Written ");
+    Serial.println(pCharacteristic->getValue().c_str());
+
+    if (pCharacteristic == parameters_characteristic)
+    {
+      parametersString = pCharacteristic->getValue().c_str();
+      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, and shouldRunString 
+      startVoltage = strtof(strtok((char*)parametersString, " "), NULL);
+      endVoltage = strtof(strtok((char*)parametersString, " "), NULL);
+      stepsString = strtol(strtok((char*)parametersString, " "), NULL, 10);
+      delayString = strtol(strtok((char*)parametersString, " "), NULL, 10);
+      shouldRunString = stepsString = strtol(strtok((char*)parametersString, " "), NULL, 10);
+
+      Serial.println("Parameters: ");
+      Serial.println(startVoltage);
+      Serial.println(endVoltage);
+      Serial.println(stepsString);
+      Serial.println(delayString);
+      Serial.println(shouldRunString);
+    }
+  }
+};
 
 MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
@@ -52,6 +117,11 @@ void calculateBatteryPercentage() {
     batteryPercentage = 100;
   }
   return;
+}
+
+void sendMessageBLE(BLECharacteristic *characteristic, String message) {
+  characteristic->setValue(const_cast<char *>(message.c_str()));
+  characteristic->notify();
 }
 
 // Prints header of screen and also fits the message parameter below
@@ -111,6 +181,7 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
     String output = voltageMessage + "\n" + readingMessage;
 
     printScreen(output.c_str());
+    sendMessageBLE(message_characteristic, output.c_str());
   }
 }
 
@@ -142,6 +213,33 @@ void setup() {
   
   delay(1000);
 
+  // Create the BLE Device
+  BLEDevice::init("Edustat");
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  delay(100);
+
+  // Create a BLE Characteristic
+  message_characteristic = pService->createCharacteristic(
+      MESSAGE_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_READ |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_INDICATE);
+
+  parameters_characteristic = pService->createCharacteristic(
+      parameters_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_READ |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_INDICATE);
+
+  // Start the BLE service
+  pService->start();
+
   display.clearDisplay();
   Serial.println("Finished Setup.");
 }
@@ -151,24 +249,18 @@ void loop() {
   switch(currentState) {
     case WAIT_CONNECTION:
       // In this state, we could check if the device is connected or initialized
-      display.clearDisplay();
-      display.setTextColor(WHITE);
-      display.setTextSize(1);
-      display.setCursor(0,0);
-      display.print("Waiting for connection...");
-      display.display();
+      printScreen("Waiting for connection...");
+      // Start advertising
+      pServer->getAdvertising()->start();
       delay(1000);
-      currentState = CYCLIC_VOLTAMMETRY;  // Once setup is done, move to the next state
+      if(deviceConnected) {
+        currentState = CYCLIC_VOLTAMMETRY;  // Once connected, move to the next state
+      }
       break;
 
     case CYCLIC_VOLTAMMETRY:
       // Perform the cyclic voltammetry (voltage sweep)
-      display.clearDisplay();
-      display.setTextColor(WHITE);
-      display.setTextSize(1);
-      display.setCursor(0,0);
-      display.print("Cyclic Voltammetry");
-      display.display();
+      printScreen("Cyclic Voltammetry");
       voltageSweep(&dac, 0.0, 3.0, 1000, 200);  // Sweep from 0 to 3V
       voltageSweep(&dac, 3.0, 0.0, 1000, 200);  // Sweep from 3V to 0
 
@@ -177,12 +269,7 @@ void loop() {
 
     case SEND_DATA:
       // Send data (e.g., save it, transmit it, or process it)
-      display.clearDisplay();
-      display.setTextColor(WHITE);
-      display.setTextSize(1);
-      display.setCursor(0,0);
-      display.print("Sending data...");
-      display.display();
+      printScreen("Sending data...");
       delay(1000);  // Simulate data sending
       
       // After sending data, return to wait connection or repeat the process
