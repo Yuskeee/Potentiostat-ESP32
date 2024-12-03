@@ -49,14 +49,15 @@ const int battery_adc_pin = 35;
 
 int batteryPercentage = 100;
 String parametersString = "";
-float startVoltage = 0.0;
-float endVoltage = 0.0;
-int stepsString = 0;
-int delayString = 0;
-int shouldRunString = 0;
+float startVoltageSetting = 0.0;
+float endVoltageSetting = 0.0;
+int stepsSetting = 0;
+int delaySetting = 0;
+int shouldRunSetting = 0;
 
 enum state {
   WAIT_CONNECTION,
+  WAIT_PARAMETERS,
   CYCLIC_VOLTAMMETRY,
   SEND_DATA
 };
@@ -88,8 +89,22 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     if (pCharacteristic == parameters_characteristic)
     {
       parametersString = pCharacteristic->getValue().c_str();
-      parameters_characteristic->setValue(const_cast<char *>(parametersString.c_str()));
-      parameters_characteristic->notify();
+      char* copy = strdup(parametersString.c_str());
+      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, and shouldRunString 
+      startVoltageSetting = strtof(strtok(copy, " "), NULL);
+      endVoltageSetting = strtof(strtok(NULL, " "), NULL);
+      stepsSetting = strtol(strtok(NULL, " "), NULL, 10);
+      delaySetting = strtol(strtok(NULL, " "), NULL, 10);
+      shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
+
+      free(copy);
+
+      Serial.println("Parameters: ");
+      Serial.println(startVoltageSetting);
+      Serial.println(endVoltageSetting);
+      Serial.println(stepsSetting);
+      Serial.println(delaySetting);
+      Serial.println(shouldRunSetting);
     }
   }
 };
@@ -246,16 +261,42 @@ void loop() {
       delay(1000);
       parameters_characteristic->setCallbacks(new CharacteristicsCallbacks());
       if(deviceConnected) {
-        currentState = CYCLIC_VOLTAMMETRY;  // Once connected, move to the next state
+        currentState = WAIT_PARAMETERS;  // Once connected, move to the next state
       }
+      break;
+
+    case WAIT_PARAMETERS:
+      printScreen("Set Parameters and run.");
+      if(shouldRunSetting)
+        currentState = CYCLIC_VOLTAMMETRY;
       break;
 
     case CYCLIC_VOLTAMMETRY:
       // Perform the cyclic voltammetry (voltage sweep)
       printScreen("Cyclic Voltammetry");
-      voltageSweep(&dac, 0.0, 3.0, 1000, 200);  // Sweep from 0 to 3V
-      voltageSweep(&dac, 3.0, 0.0, 1000, 200);  // Sweep from 3V to 0
+      // Make sure voltage sweep does not exceed max voltage, nor is negative
+      if(startVoltageSetting < 0) {
+        startVoltageSetting = 0;
+      }
+      if(endVoltageSetting < 0) {
+        endVoltageSetting = 0;
+      }
+      if(startVoltageSetting > 3.3) {
+        startVoltageSetting = 3.3;
+      }
+      if(endVoltageSetting > 3.3) {
+        endVoltageSetting = 3.3;
+      }
+      if(stepsSetting < 0) {
+        stepsSetting = 0;
+      }
+      if(delaySetting < 0) {
+        delaySetting = 0;
+      }
+      voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
+      voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
 
+      shouldRunSetting = 0;
       currentState = SEND_DATA;  // After voltammetry, go to send data state
       break;
 
