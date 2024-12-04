@@ -1,5 +1,6 @@
 /* Educational low-cost Potentiostat using the microcontroller ESP32 using arduino framework */
 
+/* Include libs ---------------------------------------------------------------------------- */
 #include <Arduino.h>
 #include <MCP4725.h>
 #include <esp_adc_cal.h>
@@ -10,43 +11,48 @@
 #include <BLEUtils.h>
 #include <string.h>
 
-// BLE SECTION
-BLEServer *pServer = NULL;
-
-BLECharacteristic *message_characteristic = NULL;
-BLECharacteristic *parameters_characteristic = NULL;
-
-bool deviceConnected = false;
-
-esp_adc_cal_characteristics_t chars;
-
-bool newParameters = false;
-
+/* Constants definitions -------------------------------------------------------------------- */
+// BLE UUIDs
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-
 #define MESSAGE_CHARACTERISTIC_UUID "6d68efe5-04b6-4a85-abc4-c2670b7bf7fd"
 #define parameters_CHARACTERISTIC_UUID "f27b53ad-c63d-49a0-8c0f-9f297e6cc520"
 
+// PINs
 // #define SDA_1 21
 // #define SCL_1 22
+#define SDA_2 18 // SDA pin for the OLED display
+#define SCL_2 19 // SCL pin for the OLED display
+#define ADC_PIN 34 // ADC pin
+#define BATTERY_ADC_PIN 35 // ADC pin for the battery
 
-#define SDA_2 18
-#define SCL_2 19
-
-// Multiple I2C channels
-// TwoWire I2Cone = TwoWire(0);
-TwoWire I2Ctwo = TwoWire(1);
-
+// Other constants
 #define DAC_REF_VOLTAGE 3.3 //DAC reference voltage
-#define I2C_BUS_SPEED   100000 //i2c bus speed, 100 000Hz or 400 000Hz
+#define I2C_BUS_SPEED 100000 //i2c bus speed, 100 000Hz or 400 000Hz
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BATTERY_MAX 12.6 // Maximum battery voltage
 #define BATTERY_MIN 10.5 // Minimum battery voltage
 
-const int adc_pin = 34;
-const int battery_adc_pin = 35;
+/* Global variables declaration ---------------------------------------------------------- */
 
+// BLE variables
+BLEServer *pServer = NULL;
+BLECharacteristic *message_characteristic = NULL; // For sending messages of the cyclic voltammetry
+BLECharacteristic *parameters_characteristic = NULL; // For receiving parameters and start trigger of the cyclic voltammetry
+esp_adc_cal_characteristics_t chars;
+bool deviceConnected = false;
+bool newParameters = false;
+
+// I2C variables
+// Multiple I2C channels
+// TwoWire I2Cone = TwoWire(0);
+TwoWire I2Ctwo = TwoWire(1); // OLED display
+
+// ADC variables
+const int adc_pin = ADC_PIN;
+const int battery_adc_pin = BATTERY_ADC_PIN;
+
+// Run variables
 int batteryPercentage = 100;
 String parametersString = "";
 float startVoltageSetting = 0.0;
@@ -55,15 +61,21 @@ int stepsSetting = 0;
 int delaySetting = 0;
 int shouldRunSetting = 0;
 
+// DAC initialization
+MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
+
+// OLED display initialization
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
+
+// State machine
 enum state {
   WAIT_CONNECTION,
   WAIT_PARAMETERS,
-  CYCLIC_VOLTAMMETRY,
-  SEND_DATA
+  CYCLIC_VOLTAMMETRY
 };
-
 state currentState = WAIT_CONNECTION;
 
+/* Classes definitions --------------------------------------------------------------------- */
 class MyServerCallbacks : public BLEServerCallbacks
 {
   void onConnect(BLEServer *pServer)
@@ -109,9 +121,7 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
   }
 };
 
-MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
-
+/* Functions definitions ------------------------------------------------------------------- */
 void calculateBatteryPercentage() {
   // Calculate battery percentage with an ADC reading
   auto batteryVoltage = adc1_get_raw(ADC1_CHANNEL_7); // 35
@@ -143,21 +153,21 @@ void printScreen(const char* message) {
     case WAIT_CONNECTION:
       display.print("Connection...");
       break;
+    case WAIT_PARAMETERS:
+      display.print("Connected");
+      break;
     case CYCLIC_VOLTAMMETRY:
       display.print("Cyclic Voltammetry");
-      break;
-    case SEND_DATA:
-      display.print("Sending data...");
       break;
     default:
       display.print("Unknown state");
       break;
   }
   // Battery status in header
-  display.setCursor(0,10);
+  display.setCursor(0,30);
   display.print("Battery:" + String(batteryPercentage) + "%");
   // Message
-  display.setCursor(0,20);
+  display.setCursor(0,40);
   display.print(message);
   display.display();
 }
@@ -191,6 +201,7 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
   }
 }
 
+/* Main code ------------------------------------------------------------------------------- */
 void setup() {
   Serial.begin(115200);
   Wire.begin();
@@ -297,16 +308,7 @@ void loop() {
       voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
 
       shouldRunSetting = 0;
-      currentState = SEND_DATA;  // After voltammetry, go to send data state
-      break;
-
-    case SEND_DATA:
-      // Send data (e.g., save it, transmit it, or process it)
-      printScreen("Sending data...");
-      delay(1000);  // Simulate data sending
-      
-      // After sending data, return to wait connection or repeat the process
-      currentState = WAIT_CONNECTION;  // Reset to waiting for next cycle
+      currentState = WAIT_CONNECTION;  // After voltammetry, go to send data state
       break;
 
     default:
