@@ -20,8 +20,8 @@
 // PINs
 // #define SDA_1 21
 // #define SCL_1 22
-#define SDA_2 18 // SDA pin for the OLED display
-#define SCL_2 19 // SCL pin for the OLED display
+#define SDA_2 19 // SDA pin for the OLED display
+#define SCL_2 18 // SCL pin for the OLED display
 #define ADC_PIN 34 // ADC pin
 #define BATTERY_ADC_PIN 35 // ADC pin for the battery
 
