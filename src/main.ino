@@ -31,7 +31,8 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BATTERY_MAX 12.6 // Maximum battery voltage
-#define BATTERY_MIN 10.5 // Minimum battery voltage
+#define BATTERY_MIN 11.0 // Minimum battery voltage
+#define BATTERY_VOLTAGE_DIVIDER 4.3 // Voltage divider for the battery
 
 /* Global variables declaration ---------------------------------------------------------- */
 
@@ -121,11 +122,10 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
   }
 };
 
-/* Functions definitions ------------------------------------------------------------------- */
 void calculateBatteryPercentage() {
   // Calculate battery percentage with an ADC reading
   auto batteryVoltage = adc1_get_raw(ADC1_CHANNEL_7); // 35
-  batteryPercentage = map(esp_adc_cal_raw_to_voltage(batteryVoltage, &chars), BATTERY_MIN * 1000, BATTERY_MAX * 1000, 0, 100);
+  batteryPercentage = map(esp_adc_cal_raw_to_voltage(batteryVoltage, &chars), BATTERY_MIN * 1000 / BATTERY_VOLTAGE_DIVIDER, BATTERY_MAX * 1000 / BATTERY_VOLTAGE_DIVIDER, 0, 100);
   if (batteryPercentage < 0) {
     batteryPercentage = 0;
   }
