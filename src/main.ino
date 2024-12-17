@@ -143,6 +143,9 @@ void calculateBatteryPercentage() {
   if (batteryPercentage > 100) {
     batteryPercentage = 100;
   }
+
+  // Round to the nearest 10
+  batteryPercentage = (batteryPercentage + 5) / 10 * 10;
   return;
 }
 
