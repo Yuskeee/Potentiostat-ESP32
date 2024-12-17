@@ -78,6 +78,11 @@ enum state {
 };
 state currentState = WAIT_CONNECTION;
 
+/* Functions declarations ------------------------------------------------------------------ */
+
+// Since the DAC output is ruled by the formula V = 2 - V_desired
+float convertVoltage(float voltage);
+
 /* Classes definitions --------------------------------------------------------------------- */
 class MyServerCallbacks : public BLEServerCallbacks
 {
@@ -112,6 +117,10 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       delaySetting = strtol(strtok(NULL, " "), NULL, 10);
       shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
 
+      // Convert the voltage to the DAC output
+      startVoltageSetting = convertVoltage(startVoltageSetting);
+      endVoltageSetting = convertVoltage(endVoltageSetting);
+
       free(copy);
 
       Serial.println("Parameters: ");
@@ -123,6 +132,13 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     }
   }
 };
+
+/* Functions definitions ------------------------------------------------------------------- */
+
+// Since the DAC output is ruled by the formula V = 2 - V_desired
+float convertVoltage(float voltage) {
+  return 2 - voltage;
+}
 
 void calculateBatteryPercentage() {
   // Calculate battery percentage with an ADC reading
@@ -204,7 +220,7 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
     dac->setVoltage(currentVoltage);
     Serial.print("Voltage: ");
     Serial.println(currentVoltage, 3);
-    String voltageMessage = "Voltage: " + String(currentVoltage, 3);
+    String voltageMessage = "Voltage: " + String(convertVoltage(currentVoltage), 3);
     currentVoltage += voltageStep;
     delay(delayTime);
     String readingMessage = readSignal();
@@ -306,11 +322,11 @@ void loop() {
       if(endVoltageSetting < 0) {
         endVoltageSetting = 0;
       }
-      if(startVoltageSetting > 3.3) {
-        startVoltageSetting = 3.3;
+      if(startVoltageSetting > 4.0) {
+        startVoltageSetting = 4.0;
       }
-      if(endVoltageSetting > 3.3) {
-        endVoltageSetting = 3.3;
+      if(endVoltageSetting > 4.0) {
+        endVoltageSetting = 4.0;
       }
       if(stepsSetting < 0) {
         stepsSetting = 0;
