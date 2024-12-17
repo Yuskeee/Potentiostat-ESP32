@@ -55,6 +55,8 @@ const int battery_adc_pin = BATTERY_ADC_PIN;
 
 // Run variables
 int batteryPercentage = 100;
+int batteryVoltageCumulative[20] = {0};
+int batteryVoltageIndex = 0;
 String parametersString = "";
 float startVoltageSetting = 0.0;
 float endVoltageSetting = 0.0;
@@ -63,7 +65,7 @@ int delaySetting = 0;
 int shouldRunSetting = 0;
 
 // DAC initialization
-MCP4725 dac(MCP4725A0_ADDR_A00, DAC_REF_VOLTAGE);
+MCP4725 dac(MCP4725A0_ADDR_A01, DAC_REF_VOLTAGE);
 
 // OLED display initialization
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Ctwo, -1);
@@ -125,6 +127,15 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
 void calculateBatteryPercentage() {
   // Calculate battery percentage with an ADC reading
   auto batteryVoltage = adc1_get_raw(ADC1_CHANNEL_7); // 35
+  // Update batteryVoltageCumulative
+  batteryVoltageCumulative[batteryVoltageIndex++] = batteryVoltage;
+  batteryVoltageIndex %= 20;
+  // Calculate the average of the last 20 readings
+  int sum = 0;
+  for (int i = 0; i < 20; i++) {
+    sum += batteryVoltageCumulative[i];
+  }
+  batteryVoltage = sum / 20;
   batteryPercentage = map(esp_adc_cal_raw_to_voltage(batteryVoltage, &chars), BATTERY_MIN * 1000 / BATTERY_VOLTAGE_DIVIDER, BATTERY_MAX * 1000 / BATTERY_VOLTAGE_DIVIDER, 0, 100);
   if (batteryPercentage < 0) {
     batteryPercentage = 0;
