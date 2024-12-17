@@ -33,6 +33,7 @@
 #define BATTERY_MAX 12.6 // Maximum battery voltage
 #define BATTERY_MIN 11.0 // Minimum battery voltage
 #define BATTERY_VOLTAGE_DIVIDER 4.3 // Voltage divider for the battery
+#define RESISTANCE_FOR_CURRENT 5080 // Resistance for the current calculation
 
 /* Global variables declaration ---------------------------------------------------------- */
 
@@ -63,6 +64,7 @@ float endVoltageSetting = 0.0;
 int stepsSetting = 0;
 int delaySetting = 0;
 int shouldRunSetting = 0;
+float referenceVoltageatBeginning = 0.0; // Reference voltage at the beginning of the cyclic voltammetry, to calculate the current with the measured voltage
 
 // DAC initialization
 MCP4725 dac(MCP4725A0_ADDR_A01, DAC_REF_VOLTAGE);
@@ -206,9 +208,11 @@ void printScreen(const char* message) {
 String readSignal() {
   // Read the signal from the ADC
   auto v34 = adc1_get_raw(ADC1_CHANNEL_6); // 34
-  Serial.print("Measured Signal (mV): ");
-  Serial.println(esp_adc_cal_raw_to_voltage(v34, &chars));
-  String signalMessage = "Measured Signal (mV): " + String(esp_adc_cal_raw_to_voltage(v34, &chars));
+  // Convert voltage to current
+  float current = (v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT;
+  Serial.print("Measured current(uA): ");
+  Serial.println(current);
+  String signalMessage = String(current, 3);
   return signalMessage;
 }
 
@@ -220,7 +224,7 @@ void voltageSweep(MCP4725 *dac, float startVoltage, float endVoltage, int steps,
     dac->setVoltage(currentVoltage);
     Serial.print("Voltage: ");
     Serial.println(currentVoltage, 3);
-    String voltageMessage = "Voltage: " + String(convertVoltage(currentVoltage), 3);
+    String voltageMessage = String(convertVoltage(currentVoltage), 3);
     currentVoltage += voltageStep;
     delay(delayTime);
     String readingMessage = readSignal();
@@ -288,6 +292,13 @@ void setup() {
   pService->start();
 
   display.clearDisplay();
+
+  // Calculate the reference voltage at the beginning three times
+  for (int i = 0; i < 3; i++) {
+    referenceVoltageatBeginning += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_6), &chars);
+  }
+  referenceVoltageatBeginning /= 3;
+
   Serial.println("Finished Setup.");
 }
 
