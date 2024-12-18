@@ -34,6 +34,7 @@
 #define BATTERY_MIN 11.0 // Minimum battery voltage
 #define BATTERY_VOLTAGE_DIVIDER 4.3 // Voltage divider for the battery
 #define RESISTANCE_FOR_CURRENT 5080 // Resistance for the current calculation
+#define voltage_divider_offset 1.071 // Voltage divider offset
 
 /* Global variables declaration ---------------------------------------------------------- */
 
@@ -207,9 +208,15 @@ void printScreen(const char* message) {
 // Read the signal from the ADC
 String readSignal() {
   // Read the signal from the ADC
-  auto v34 = adc1_get_raw(ADC1_CHANNEL_6); // 34
+  // auto v34 = adc1_get_raw(ADC1_CHANNEL_6); // 34
+  auto reading = analogRead(ADC_PIN);
+  auto v34 = -0.000000000000016 * pow(reading,4) + 0.000000000118171 * pow(reading,3)- 0.000000301211691 * pow(reading,2)+ 0.001109019271794 * reading + 0.034143524634089;
+  if(reading < 1 || reading > 4095) v34 = 0;
+  v34 *= 1000;
+  Serial.print("Measured voltage (mV): ");
+  Serial.println(v34);
   // Convert voltage to current
-  float current = (v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT;
+  float current = (v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT * 1000;
   Serial.print("Measured current(uA): ");
   Serial.println(current);
   String signalMessage = String(current, 3);
@@ -293,12 +300,6 @@ void setup() {
 
   display.clearDisplay();
 
-  // Calculate the reference voltage at the beginning three times
-  for (int i = 0; i < 3; i++) {
-    referenceVoltageatBeginning += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_6), &chars);
-  }
-  referenceVoltageatBeginning /= 3;
-
   Serial.println("Finished Setup.");
 }
 
@@ -324,6 +325,16 @@ void loop() {
       break;
 
     case CYCLIC_VOLTAMMETRY:
+      // Calculate the reference voltage at the beginning three times
+      referenceVoltageatBeginning = 0.0;
+      for (int i = 0; i < 3; i++) {
+        auto reading = analogRead(ADC_PIN);
+        auto v34 = -0.000000000000016 * pow(reading,4) + 0.000000000118171 * pow(reading,3)- 0.000000301211691 * pow(reading,2)+ 0.001109019271794 * reading + 0.034143524634089;
+        if(reading < 1 || reading > 4095) v34 = 0;
+        referenceVoltageatBeginning += v34;
+      }
+      referenceVoltageatBeginning /= 3;
+      referenceVoltageatBeginning *= 1000;
       // Perform the cyclic voltammetry (voltage sweep)
       printScreen("Cyclic Voltammetry");
       // Make sure voltage sweep does not exceed max voltage, nor is negative
