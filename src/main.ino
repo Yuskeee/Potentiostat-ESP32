@@ -65,6 +65,7 @@ float endVoltageSetting = 0.0;
 int stepsSetting = 0;
 int delaySetting = 0;
 int shouldRunSetting = 0;
+int nCyclesSetting = 0;
 float referenceVoltageatBeginning = 0.0; // Reference voltage at the beginning of the cyclic voltammetry, to calculate the current with the measured voltage
 
 // DAC initialization
@@ -113,11 +114,12 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     {
       parametersString = pCharacteristic->getValue().c_str();
       char* copy = strdup(parametersString.c_str());
-      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, and shouldRunString 
+      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, and shouldRunString 
       startVoltageSetting = strtof(strtok(copy, " "), NULL);
       endVoltageSetting = strtof(strtok(NULL, " "), NULL);
       stepsSetting = strtol(strtok(NULL, " "), NULL, 10);
       delaySetting = strtol(strtok(NULL, " "), NULL, 10);
+      nCyclesSetting = strtol(strtok(NULL, " "), NULL, 10);
       shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
 
       // Convert the voltage to the DAC output
@@ -131,6 +133,7 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       Serial.println(endVoltageSetting);
       Serial.println(stepsSetting);
       Serial.println(delaySetting);
+      Serial.println(nCyclesSetting);
       Serial.println(shouldRunSetting);
     }
   }
@@ -356,9 +359,12 @@ void loop() {
       if(delaySetting < 0) {
         delaySetting = 0;
       }
-      voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
-      voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
 
+      for (int i = 0; i < nCyclesSetting; i++) {
+        voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
+        voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
+      }
+      
       shouldRunSetting = 0;
       currentState = WAIT_CONNECTION;  // After voltammetry, go to send data state
       break;
