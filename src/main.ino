@@ -26,7 +26,7 @@
 #define BATTERY_ADC_PIN 35 // ADC pin for the battery
 
 // Other constants
-#define DAC_REF_VOLTAGE 3.3 //DAC reference voltage
+#define DAC_REF_VOLTAGE 5.0 //DAC reference voltage
 #define I2C_BUS_SPEED 100000 //i2c bus speed, 100 000Hz or 400 000Hz
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -311,7 +311,7 @@ void loop() {
       printScreen("Waiting for connection...");
       // Start advertising
       pServer->getAdvertising()->start();
-      delay(1000);
+      delay(50);
       parameters_characteristic->setCallbacks(new CharacteristicsCallbacks());
       if(deviceConnected) {
         currentState = WAIT_PARAMETERS;  // Once connected, move to the next state
