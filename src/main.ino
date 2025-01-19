@@ -65,7 +65,8 @@ float endVoltageSetting = 0.0;
 int stepsSetting = 0;
 int delaySetting = 0;
 int nCyclesSetting = 0;
-int initialPotentialmsSetting = 0;
+int initialPotentialmsSetting = 0; // Initial potential in ms
+int stopPotentialVoltageSetting = 0;
 int shouldRunSetting = 0;
 float referenceVoltageatBeginning = 0.0; // Reference voltage at the beginning of the cyclic voltammetry, to calculate the current with the measured voltage
 
@@ -115,18 +116,20 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     {
       parametersString = pCharacteristic->getValue().c_str();
       char* copy = strdup(parametersString.c_str());
-      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, initialPotentialmsString, and shouldRunString 
+      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, initialPotentialmsString, stopPotentialVoltageString and shouldRunString 
       startVoltageSetting = strtof(strtok(copy, " "), NULL);
       endVoltageSetting = strtof(strtok(NULL, " "), NULL);
       stepsSetting = strtol(strtok(NULL, " "), NULL, 10);
       delaySetting = strtol(strtok(NULL, " "), NULL, 10);
       nCyclesSetting = strtol(strtok(NULL, " "), NULL, 10);
       initialPotentialmsSetting = strtol(strtok(NULL, " "), NULL, 10);
+      stopPotentialVoltageSetting = strtol(strtok(NULL, " "), NULL, 10);
       shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
 
       // Convert the voltage to the DAC output
       startVoltageSetting = convertVoltage(startVoltageSetting);
       endVoltageSetting = convertVoltage(endVoltageSetting);
+      stopPotentialVoltageSetting = convertVoltage(stopPotentialVoltageSetting);
 
       free(copy);
 
@@ -137,6 +140,7 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       Serial.println(delaySetting);
       Serial.println(nCyclesSetting);
       Serial.println(initialPotentialmsSetting);
+      Serial.println(stopPotentialVoltageSetting);
       Serial.println(shouldRunSetting);
     }
   }
@@ -313,6 +317,7 @@ void loop() {
   // Check the current state and run the appropriate functionality
   switch(currentState) {
     case WAIT_CONNECTION:
+    {
       // In this state, we could check if the device is connected or initialized
       printScreen("Waiting for connection...");
       // Start advertising
@@ -323,14 +328,16 @@ void loop() {
         currentState = WAIT_PARAMETERS;  // Once connected, move to the next state
       }
       break;
-
+    }
     case WAIT_PARAMETERS:
+    {
       printScreen("Set Parameters and run.");
       if(shouldRunSetting)
         currentState = CYCLIC_VOLTAMMETRY;
       break;
-
+    }
     case CYCLIC_VOLTAMMETRY:
+    {
       // Calculate the reference voltage at the beginning three times
       referenceVoltageatBeginning = 0.0;
       for (int i = 0; i < 3; i++) {
@@ -372,13 +379,20 @@ void loop() {
         voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
         voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
       }
-      
+
+      // Stop potential
+      // Discover the voltage step to reach the stop potential from the StartVoltage
+      int voltageSteps = (stopPotentialVoltageSetting - startVoltageSetting) / (endVoltageSetting - startVoltageSetting) * stepsSetting;
+      voltageSweep(&dac, startVoltageSetting, stopPotentialVoltageSetting, voltageSteps, delaySetting); 
+
       shouldRunSetting = 0;
       currentState = WAIT_CONNECTION;  // After voltammetry, go to send data state
       break;
-
+    }
     default:
+    {
       currentState = WAIT_CONNECTION;  // Default to WAIT_CONNECTION in case of error
       break;
+    }
   }
 }
