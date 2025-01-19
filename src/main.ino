@@ -64,8 +64,9 @@ float startVoltageSetting = 0.0;
 float endVoltageSetting = 0.0;
 int stepsSetting = 0;
 int delaySetting = 0;
-int shouldRunSetting = 0;
 int nCyclesSetting = 0;
+int initialPotentialmsSetting = 0;
+int shouldRunSetting = 0;
 float referenceVoltageatBeginning = 0.0; // Reference voltage at the beginning of the cyclic voltammetry, to calculate the current with the measured voltage
 
 // DAC initialization
@@ -114,12 +115,13 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     {
       parametersString = pCharacteristic->getValue().c_str();
       char* copy = strdup(parametersString.c_str());
-      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, and shouldRunString 
+      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, initialPotentialmsString, and shouldRunString 
       startVoltageSetting = strtof(strtok(copy, " "), NULL);
       endVoltageSetting = strtof(strtok(NULL, " "), NULL);
       stepsSetting = strtol(strtok(NULL, " "), NULL, 10);
       delaySetting = strtol(strtok(NULL, " "), NULL, 10);
       nCyclesSetting = strtol(strtok(NULL, " "), NULL, 10);
+      initialPotentialmsSetting = strtol(strtok(NULL, " "), NULL, 10);
       shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
 
       // Convert the voltage to the DAC output
@@ -134,6 +136,7 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       Serial.println(stepsSetting);
       Serial.println(delaySetting);
       Serial.println(nCyclesSetting);
+      Serial.println(initialPotentialmsSetting);
       Serial.println(shouldRunSetting);
     }
   }
@@ -359,6 +362,11 @@ void loop() {
       if(delaySetting < 0) {
         delaySetting = 0;
       }
+
+      // Initial potential
+      dac.setVoltage(convertVoltage(startVoltageSetting));
+      printScreen("Initial Potential Running");
+      delay(initialPotentialmsSetting);
 
       for (int i = 0; i < nCyclesSetting; i++) {
         voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
