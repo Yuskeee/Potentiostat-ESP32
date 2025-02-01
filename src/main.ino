@@ -10,6 +10,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <string.h>
+#include <math.h>
 
 /* Constants definitions -------------------------------------------------------------------- */
 // BLE UUIDs
@@ -26,15 +27,14 @@
 #define BATTERY_ADC_PIN 35 // ADC pin for the battery
 
 // Other constants
-#define DAC_REF_VOLTAGE 5.0 //DAC reference voltage
-#define I2C_BUS_SPEED 100000 //i2c bus speed, 100 000Hz or 400 000Hz
+#define DAC_REF_VOLTAGE 5.0 // DAC reference voltage
+#define I2C_BUS_SPEED 100000 // i2c bus speed, 100 000Hz or 400 000Hz
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BATTERY_MAX 12.6 // Maximum battery voltage
 #define BATTERY_MIN 11.0 // Minimum battery voltage
 #define BATTERY_VOLTAGE_DIVIDER 4.3 // Voltage divider for the battery
 #define RESISTANCE_FOR_CURRENT 5080 // Resistance for the current calculation
-#define voltage_divider_offset 1.071 // Voltage divider offset
 
 /* Global variables declaration ---------------------------------------------------------- */
 
@@ -69,6 +69,10 @@ int initialPotentialmsSetting = 0; // Initial potential in ms
 int stopPotentialVoltageSetting = 0;
 int shouldRunSetting = 0;
 float referenceVoltageatBeginning = 0.0; // Reference voltage at the beginning of the cyclic voltammetry, to calculate the current with the measured voltage
+
+// New calibration variables (default values)
+float calibrationK = 1.0;       // Proportional factor (default 1)
+float calibrationOffset = 0.0;  // Offset (default 0)
 
 // DAC initialization
 MCP4725 dac(MCP4725A0_ADDR_A01, DAC_REF_VOLTAGE);
@@ -116,7 +120,9 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
     {
       parametersString = pCharacteristic->getValue().c_str();
       char* copy = strdup(parametersString.c_str());
-      // Parse parametersString into startVoltageString, endVoltageString, stepsString, delayString, nCyclesString, initialPotentialmsString, stopPotentialVoltageString and shouldRunString 
+      
+      // Parse parametersString into tokens:
+      // Order: startVoltage endVoltage steps delay nCycles initialPotential stopPotential shouldRun [calibrationK] [calibrationOffset]
       startVoltageSetting = strtof(strtok(copy, " "), NULL);
       endVoltageSetting = strtof(strtok(NULL, " "), NULL);
       stepsSetting = strtol(strtok(NULL, " "), NULL, 10);
@@ -126,6 +132,18 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       stopPotentialVoltageSetting = strtol(strtok(NULL, " "), NULL, 10);
       shouldRunSetting = strtol(strtok(NULL, " "), NULL, 10);
 
+      // Parse optional calibration parameters if provided
+      char * token = strtok(NULL, " ");
+      if(token != NULL)
+      {
+        calibrationK = strtof(token, NULL);
+      }
+      token = strtok(NULL, " ");
+      if(token != NULL)
+      {
+        calibrationOffset = strtof(token, NULL);
+      }
+
       // Convert the voltage to the DAC output
       startVoltageSetting = convertVoltage(startVoltageSetting);
       endVoltageSetting = convertVoltage(endVoltageSetting);
@@ -134,14 +152,16 @@ class CharacteristicsCallbacks : public BLECharacteristicCallbacks
       free(copy);
 
       Serial.println("Parameters: ");
-      Serial.println(startVoltageSetting);
-      Serial.println(endVoltageSetting);
-      Serial.println(stepsSetting);
-      Serial.println(delaySetting);
-      Serial.println(nCyclesSetting);
-      Serial.println(initialPotentialmsSetting);
-      Serial.println(stopPotentialVoltageSetting);
-      Serial.println(shouldRunSetting);
+      Serial.print("Start Voltage: "); Serial.println(startVoltageSetting);
+      Serial.print("End Voltage: "); Serial.println(endVoltageSetting);
+      Serial.print("Steps: "); Serial.println(stepsSetting);
+      Serial.print("Delay: "); Serial.println(delaySetting);
+      Serial.print("Number of Cycles: "); Serial.println(nCyclesSetting);
+      Serial.print("Initial Potential (ms): "); Serial.println(initialPotentialmsSetting);
+      Serial.print("Stop Potential: "); Serial.println(stopPotentialVoltageSetting);
+      Serial.print("Should Run: "); Serial.println(shouldRunSetting);
+      Serial.print("Calibration K: "); Serial.println(calibrationK);
+      Serial.print("Calibration Offset: "); Serial.println(calibrationOffset);
     }
   }
 };
@@ -218,16 +238,20 @@ void printScreen(const char* message) {
 // Read the signal from the ADC
 String readSignal() {
   // Read the signal from the ADC
-  // auto v34 = adc1_get_raw(ADC1_CHANNEL_6); // 34
   auto reading = analogRead(ADC_PIN);
-  auto v34 = -0.000000000000016 * pow(reading,4) + 0.000000000118171 * pow(reading,3)- 0.000000301211691 * pow(reading,2)+ 0.001109019271794 * reading + 0.034143524634089;
-  if(reading < 1 || reading > 4095) v34 = 0;
-  v34 *= 1000;
+  auto v34 = -0.000000000000016 * pow(reading, 4) 
+             + 0.000000000118171 * pow(reading, 3)
+             - 0.000000301211691 * pow(reading, 2)
+             + 0.001109019271794 * reading 
+             + 0.034143524634089;
+  if (reading < 1 || reading > 4095) v34 = 0;
+  v34 *= 1000;  // Convert to mV
   Serial.print("Measured voltage (mV): ");
   Serial.println(v34);
-  // Convert voltage to current
-  float current = (v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT * 1000;
-  Serial.print("Measured current(uA): ");
+  // Convert voltage to current using calibration:
+  // current = calibrationK * ( (v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT * 1000 ) + calibrationOffset
+  float current = calibrationK * ((v34 - referenceVoltageatBeginning) / RESISTANCE_FOR_CURRENT * 1000) + calibrationOffset;
+  Serial.print("Measured current (uA): ");
   Serial.println(current);
   String signalMessage = String(current, 3);
   return signalMessage;
@@ -260,14 +284,14 @@ void setup() {
   // I2Cone.begin(SDA_1, SCL_1, I2C_BUS_SPEED); 
   I2Ctwo.begin(SDA_2, SCL_2, I2C_BUS_SPEED);
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for(;;);
+    for (;;);
   }
 
   while (dac.begin() != true)
   {
-    Serial.println(F("MCP4725 is not connected")); //(F()) saves string to flash & keeps dynamic memory free
+    Serial.println(F("MCP4725 is not connected"));
     delay(5000);
   }
 
@@ -276,8 +300,8 @@ void setup() {
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &chars);
 
   adc1_config_width(chars.bit_width);
-  adc1_config_channel_atten(ADC1_CHANNEL_6, chars.atten); // 34
-  adc1_config_channel_atten(ADC1_CHANNEL_7, chars.atten); // 35
+  adc1_config_channel_atten(ADC1_CHANNEL_6, chars.atten); // ADC_PIN 34
+  adc1_config_channel_atten(ADC1_CHANNEL_7, chars.atten); // BATTERY_ADC_PIN 35
   
   delay(1000);
 
@@ -290,20 +314,20 @@ void setup() {
   BLEService *pService = pServer->createService(SERVICE_UUID);
   delay(100);
 
-  // Create a BLE Characteristic
+  // Create BLE Characteristics
   message_characteristic = pService->createCharacteristic(
       MESSAGE_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_READ |
-          BLECharacteristic::PROPERTY_WRITE |
-          BLECharacteristic::PROPERTY_NOTIFY |
-          BLECharacteristic::PROPERTY_INDICATE);
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_NOTIFY |
+      BLECharacteristic::PROPERTY_INDICATE);
 
   parameters_characteristic = pService->createCharacteristic(
       parameters_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_READ |
-          BLECharacteristic::PROPERTY_WRITE |
-          BLECharacteristic::PROPERTY_NOTIFY |
-          BLECharacteristic::PROPERTY_INDICATE);
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_NOTIFY |
+      BLECharacteristic::PROPERTY_INDICATE);
 
   // Start the BLE service
   pService->start();
@@ -315,7 +339,7 @@ void setup() {
 
 void loop() {
   // Check the current state and run the appropriate functionality
-  switch(currentState) {
+  switch (currentState) {
     case WAIT_CONNECTION:
     {
       // In this state, we could check if the device is connected or initialized
@@ -324,7 +348,7 @@ void loop() {
       pServer->getAdvertising()->start();
       delay(50);
       parameters_characteristic->setCallbacks(new CharacteristicsCallbacks());
-      if(deviceConnected) {
+      if (deviceConnected) {
         currentState = WAIT_PARAMETERS;  // Once connected, move to the next state
       }
       break;
@@ -332,7 +356,7 @@ void loop() {
     case WAIT_PARAMETERS:
     {
       printScreen("Set Parameters and run.");
-      if(shouldRunSetting)
+      if (shouldRunSetting)
         currentState = CYCLIC_VOLTAMMETRY;
       break;
     }
@@ -342,31 +366,36 @@ void loop() {
       referenceVoltageatBeginning = 0.0;
       for (int i = 0; i < 3; i++) {
         auto reading = analogRead(ADC_PIN);
-        auto v34 = -0.000000000000016 * pow(reading,4) + 0.000000000118171 * pow(reading,3)- 0.000000301211691 * pow(reading,2)+ 0.001109019271794 * reading + 0.034143524634089;
-        if(reading < 1 || reading > 4095) v34 = 0;
+        auto v34 = -0.000000000000016 * pow(reading, 4) 
+                   + 0.000000000118171 * pow(reading, 3)
+                   - 0.000000301211691 * pow(reading, 2)
+                   + 0.001109019271794 * reading 
+                   + 0.034143524634089;
+        if (reading < 1 || reading > 4095) v34 = 0;
         referenceVoltageatBeginning += v34;
       }
       referenceVoltageatBeginning /= 3;
-      referenceVoltageatBeginning *= 1000;
+      referenceVoltageatBeginning *= 1000;  // Convert to mV
+
       // Perform the cyclic voltammetry (voltage sweep)
       printScreen("Cyclic Voltammetry");
       // Make sure voltage sweep does not exceed max voltage, nor is negative
-      if(startVoltageSetting < 0) {
+      if (startVoltageSetting < 0) {
         startVoltageSetting = 0;
       }
-      if(endVoltageSetting < 0) {
+      if (endVoltageSetting < 0) {
         endVoltageSetting = 0;
       }
-      if(startVoltageSetting > 4.0) {
+      if (startVoltageSetting > 4.0) {
         startVoltageSetting = 4.0;
       }
-      if(endVoltageSetting > 4.0) {
+      if (endVoltageSetting > 4.0) {
         endVoltageSetting = 4.0;
       }
-      if(stepsSetting < 0) {
+      if (stepsSetting < 0) {
         stepsSetting = 0;
       }
-      if(delaySetting < 0) {
+      if (delaySetting < 0) {
         delaySetting = 0;
       }
 
@@ -376,17 +405,17 @@ void loop() {
       delay(initialPotentialmsSetting);
 
       for (int i = 0; i < nCyclesSetting; i++) {
-        voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from 0 to 3V
-        voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from 3V to 0
+        voltageSweep(&dac, startVoltageSetting, endVoltageSetting, stepsSetting, delaySetting);  // Sweep from start to end voltage
+        voltageSweep(&dac, endVoltageSetting, startVoltageSetting, stepsSetting, delaySetting);  // Sweep from end back to start
       }
 
-      // Stop potential
-      // Discover the voltage step to reach the stop potential from the StartVoltage
+      // Stop potential:
+      // Discover the voltage steps required to reach the stop potential from the StartVoltage
       int voltageSteps = (stopPotentialVoltageSetting - startVoltageSetting) / (endVoltageSetting - startVoltageSetting) * stepsSetting;
-      voltageSweep(&dac, startVoltageSetting, stopPotentialVoltageSetting, voltageSteps, delaySetting); 
+      voltageSweep(&dac, startVoltageSetting, stopPotentialVoltageSetting, voltageSteps, delaySetting);
 
       shouldRunSetting = 0;
-      currentState = WAIT_CONNECTION;  // After voltammetry, go to send data state
+      currentState = WAIT_CONNECTION;  // After voltammetry, return to waiting for connection
       break;
     }
     default:
